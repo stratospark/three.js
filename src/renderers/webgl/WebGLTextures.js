@@ -412,6 +412,8 @@ function WebGLTextures( _gl, extensions, state, properties, capabilities, utils,
 
 	function setTextureParameters( textureType, texture, supportsMips ) {
 
+		console.log({ textureType, texture, supportsMips });
+
 		if ( supportsMips ) {
 
 			_gl.texParameteri( textureType, _gl.TEXTURE_WRAP_S, wrappingToGL[ texture.wrapS ] );
@@ -492,13 +494,17 @@ function WebGLTextures( _gl, extensions, state, properties, capabilities, utils,
 
 		let textureType = _gl.TEXTURE_2D;
 
-		if ( texture.isDataTexture2DArray ) textureType = _gl.TEXTURE_2D_ARRAY;
+		if ( texture.isDataTexture2DArray || texture.isTextureArray ) textureType = _gl.TEXTURE_2D_ARRAY;
 		if ( texture.isDataTexture3D ) textureType = _gl.TEXTURE_3D;
 
 		initTexture( textureProperties, texture );
 
 		state.activeTexture( _gl.TEXTURE0 + slot );
 		state.bindTexture( textureType, textureProperties.__webglTexture );
+
+		// if (texture.isTextureArray) {
+		// 	gl.texStorage3D(gl.TEXTURE_2D_ARRAY, levels, COMPRESSED.RGB_S3TC_DXT1_EXT, width, height, images);
+		// }
 
 		_gl.pixelStorei( _gl.UNPACK_FLIP_Y_WEBGL, texture.flipY );
 		_gl.pixelStorei( _gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, texture.premultiplyAlpha );
@@ -514,7 +520,7 @@ function WebGLTextures( _gl, extensions, state, properties, capabilities, utils,
 		let glType = utils.convert( texture.type ),
 			glInternalFormat = getInternalFormat( texture.internalFormat, glFormat, glType );
 
-		setTextureParameters( textureType, texture, supportsMips );
+		// setTextureParameters( textureType, texture, supportsMips );
 
 		let mipmap;
 		const mipmaps = texture.mipmaps;
@@ -624,31 +630,83 @@ function WebGLTextures( _gl, extensions, state, properties, capabilities, utils,
 
 		} else if ( texture.isCompressedTexture ) {
 
-			for ( let i = 0, il = mipmaps.length; i < il; i ++ ) {
+			if ( texture.isTextureArray ) {
 
-				mipmap = mipmaps[ i ];
+				// TODO: move to WebGLState.js?
+				_gl.texStorage3D(_gl.TEXTURE_2D_ARRAY, mipmaps[ 0 ].length, glFormat,
+					texture.image.width, texture.image.height, mipmaps.length);
 
-				if ( texture.format !== RGBAFormat && texture.format !== RGBFormat ) {
+				for ( let i = 0, il = mipmaps.length; i < il; i ++ ) {
 
-					if ( glFormat !== null ) {
+					for ( let j = 0; j < mipmaps[ i ].length; j ++ ) {
 
-						state.compressedTexImage2D( _gl.TEXTURE_2D, i, glInternalFormat, mipmap.width, mipmap.height, 0, mipmap.data );
+						mipmap = mipmaps[ i ][ j ];
 
-					} else {
+						if ( texture.format !== RGBAFormat && texture.format !== RGBFormat ) {
 
-						console.warn( 'THREE.WebGLRenderer: Attempt to load unsupported compressed texture format in .uploadTexture()' );
+							if ( glFormat !== null ) {
+
+								state.compressedTexSubImage3D(
+									_gl.TEXTURE_2D_ARRAY,
+									j,
+									0,
+									0,
+									i,
+									mipmap.width,
+									mipmap.height,
+									1,
+									glFormat,
+									mipmap.data
+								);
+
+							} else {
+
+								console.warn( 'THREE.WebGLRenderer: Attempt to load unsupported compressed texture format in .uploadTexture()' );
+
+							}
+
+						} else {
+
+							state.texImage2D( _gl.TEXTURE_2D, i, glInternalFormat, mipmap.width, mipmap.height, 0, glFormat, glType, mipmap.data );
+
+						}
 
 					}
 
-				} else {
+				}
 
-					state.texImage2D( _gl.TEXTURE_2D, i, glInternalFormat, mipmap.width, mipmap.height, 0, glFormat, glType, mipmap.data );
+				// textureProperties.__maxMipLevel = mipmaps.length - 1;
+
+			} else {
+
+				for ( let i = 0, il = mipmaps.length; i < il; i ++ ) {
+
+					mipmap = mipmaps[ i ];
+
+					if ( texture.format !== RGBAFormat && texture.format !== RGBFormat ) {
+
+						if ( glFormat !== null ) {
+
+							state.compressedTexImage2D( _gl.TEXTURE_2D, i, glInternalFormat, mipmap.width, mipmap.height, 0, mipmap.data );
+
+						} else {
+
+							console.warn( 'THREE.WebGLRenderer: Attempt to load unsupported compressed texture format in .uploadTexture()' );
+
+						}
+
+					} else {
+
+						state.texImage2D( _gl.TEXTURE_2D, i, glInternalFormat, mipmap.width, mipmap.height, 0, glFormat, glType, mipmap.data );
+
+					}
 
 				}
 
+				textureProperties.__maxMipLevel = mipmaps.length - 1;
+
 			}
 
-			textureProperties.__maxMipLevel = mipmaps.length - 1;
 
 		} else if ( texture.isDataTexture2DArray ) {
 

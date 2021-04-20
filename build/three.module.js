@@ -1430,6 +1430,7 @@ class Texture extends EventDispatcher {
 
 		this.image = image;
 		this.mipmaps = [];
+		this.isTextureArray = false;
 
 		this.mapping = mapping;
 
@@ -1487,6 +1488,7 @@ class Texture extends EventDispatcher {
 
 		this.image = source.image;
 		this.mipmaps = source.mipmaps.slice( 0 );
+		this.isTextureArray = source.isTextureArray;
 
 		this.mapping = source.mapping;
 
@@ -20101,6 +20103,20 @@ function WebGLState( gl, extensions, capabilities ) {
 
 	}
 
+	function compressedTexSubImage3D() {
+
+		try {
+
+			gl.compressedTexSubImage3D.apply( gl, arguments );
+
+		} catch ( error ) {
+
+			console.error( 'THREE.WebGLState:', error );
+
+		}
+
+	}
+
 	function texImage2D() {
 
 		try {
@@ -20276,6 +20292,7 @@ function WebGLState( gl, extensions, capabilities ) {
 		bindTexture: bindTexture,
 		unbindTexture: unbindTexture,
 		compressedTexImage2D: compressedTexImage2D,
+		compressedTexSubImage3D: compressedTexSubImage3D,
 		texImage2D: texImage2D,
 		texImage3D: texImage3D,
 
@@ -20699,6 +20716,8 @@ function WebGLTextures( _gl, extensions, state, properties, capabilities, utils,
 
 	function setTextureParameters( textureType, texture, supportsMips ) {
 
+		console.log({ textureType, texture, supportsMips });
+
 		if ( supportsMips ) {
 
 			_gl.texParameteri( textureType, 10242, wrappingToGL[ texture.wrapS ] );
@@ -20779,13 +20798,17 @@ function WebGLTextures( _gl, extensions, state, properties, capabilities, utils,
 
 		let textureType = 3553;
 
-		if ( texture.isDataTexture2DArray ) textureType = 35866;
+		if ( texture.isDataTexture2DArray || texture.isTextureArray ) textureType = 35866;
 		if ( texture.isDataTexture3D ) textureType = 32879;
 
 		initTexture( textureProperties, texture );
 
 		state.activeTexture( 33984 + slot );
 		state.bindTexture( textureType, textureProperties.__webglTexture );
+
+		// if (texture.isTextureArray) {
+		// 	gl.texStorage3D(35866, levels, COMPRESSED.RGB_S3TC_DXT1_EXT, width, height, images);
+		// }
 
 		_gl.pixelStorei( 37440, texture.flipY );
 		_gl.pixelStorei( 37441, texture.premultiplyAlpha );
@@ -20801,7 +20824,7 @@ function WebGLTextures( _gl, extensions, state, properties, capabilities, utils,
 		let glType = utils.convert( texture.type ),
 			glInternalFormat = getInternalFormat( texture.internalFormat, glFormat, glType );
 
-		setTextureParameters( textureType, texture, supportsMips );
+		// setTextureParameters( textureType, texture, supportsMips );
 
 		let mipmap;
 		const mipmaps = texture.mipmaps;
@@ -20911,31 +20934,83 @@ function WebGLTextures( _gl, extensions, state, properties, capabilities, utils,
 
 		} else if ( texture.isCompressedTexture ) {
 
-			for ( let i = 0, il = mipmaps.length; i < il; i ++ ) {
+			if ( texture.isTextureArray ) {
 
-				mipmap = mipmaps[ i ];
+				// TODO: move to WebGLState.js?
+				_gl.texStorage3D(35866, mipmaps[ 0 ].length, glFormat,
+					texture.image.width, texture.image.height, mipmaps.length);
 
-				if ( texture.format !== RGBAFormat && texture.format !== RGBFormat ) {
+				for ( let i = 0, il = mipmaps.length; i < il; i ++ ) {
 
-					if ( glFormat !== null ) {
+					for ( let j = 0; j < mipmaps[ i ].length; j ++ ) {
 
-						state.compressedTexImage2D( 3553, i, glInternalFormat, mipmap.width, mipmap.height, 0, mipmap.data );
+						mipmap = mipmaps[ i ][ j ];
 
-					} else {
+						if ( texture.format !== RGBAFormat && texture.format !== RGBFormat ) {
 
-						console.warn( 'THREE.WebGLRenderer: Attempt to load unsupported compressed texture format in .uploadTexture()' );
+							if ( glFormat !== null ) {
+
+								state.compressedTexSubImage3D(
+									35866,
+									j,
+									0,
+									0,
+									i,
+									mipmap.width,
+									mipmap.height,
+									1,
+									glFormat,
+									mipmap.data
+								);
+
+							} else {
+
+								console.warn( 'THREE.WebGLRenderer: Attempt to load unsupported compressed texture format in .uploadTexture()' );
+
+							}
+
+						} else {
+
+							state.texImage2D( 3553, i, glInternalFormat, mipmap.width, mipmap.height, 0, glFormat, glType, mipmap.data );
+
+						}
 
 					}
 
-				} else {
+				}
 
-					state.texImage2D( 3553, i, glInternalFormat, mipmap.width, mipmap.height, 0, glFormat, glType, mipmap.data );
+				// textureProperties.__maxMipLevel = mipmaps.length - 1;
+
+			} else {
+
+				for ( let i = 0, il = mipmaps.length; i < il; i ++ ) {
+
+					mipmap = mipmaps[ i ];
+
+					if ( texture.format !== RGBAFormat && texture.format !== RGBFormat ) {
+
+						if ( glFormat !== null ) {
+
+							state.compressedTexImage2D( 3553, i, glInternalFormat, mipmap.width, mipmap.height, 0, mipmap.data );
+
+						} else {
+
+							console.warn( 'THREE.WebGLRenderer: Attempt to load unsupported compressed texture format in .uploadTexture()' );
+
+						}
+
+					} else {
+
+						state.texImage2D( 3553, i, glInternalFormat, mipmap.width, mipmap.height, 0, glFormat, glType, mipmap.data );
+
+					}
 
 				}
 
+				textureProperties.__maxMipLevel = mipmaps.length - 1;
+
 			}
 
-			textureProperties.__maxMipLevel = mipmaps.length - 1;
 
 		} else if ( texture.isDataTexture2DArray ) {
 

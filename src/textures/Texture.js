@@ -31,6 +31,7 @@ class Texture extends EventDispatcher {
 
 		this.image = image;
 		this.mipmaps = [];
+		this.isTextureArray = false;
 
 		this.mapping = mapping;
 
@@ -88,6 +89,7 @@ class Texture extends EventDispatcher {
 
 		this.image = source.image;
 		this.mipmaps = source.mipmaps.slice( 0 );
+		this.isTextureArray = source.isTextureArray;
 
 		this.mapping = source.mapping;
 

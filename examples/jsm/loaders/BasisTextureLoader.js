@@ -174,13 +174,14 @@ BasisTextureLoader.prototype = Object.assign( Object.create( Loader.prototype ),
 			} )
 			.then( ( message ) => {
 
-				var { mipmaps, width, height, format } = message;
+				var { mipmaps, width, height, format, isTextureArray } = message;
 
 				var texture = new CompressedTexture( mipmaps, width, height, format, UnsignedByteType );
 				texture.minFilter = mipmaps.length === 1 ? LinearFilter : LinearMipmapLinearFilter;
 				texture.magFilter = LinearFilter;
 				texture.generateMipmaps = false;
 				texture.needsUpdate = true;
+				texture.isTextureArray = isTextureArray;
 
 				return texture;
 
@@ -404,19 +405,40 @@ BasisTextureLoader.BasisWorker = function () {
 
 					try {
 
-						var { width, height, hasAlpha, mipmaps, format } = message.taskConfig.lowLevel
+						var { width, height, hasAlpha, mipmaps, format, isTextureArray } = message.taskConfig.lowLevel
 							? transcodeLowLevel( message.taskConfig )
 							: transcode( message.buffers[ 0 ] );
 
-						var buffers = [];
+						if ( isTextureArray ) {
 
-						for ( var i = 0; i < mipmaps.length; ++ i ) {
+							var buffers = [];
 
-							buffers.push( mipmaps[ i ].data.buffer );
+							for ( var i = 0; i < mipmaps.length; i ++ ) {
+
+								// var imageBuffer = [];
+								for ( var j = 0; j < mipmaps[ i ].length; j ++ ) {
+
+									buffers.push( mipmaps[ i ][ j ].data.buffer );
+
+								}
+
+								// buffers.push( imageBuffer );
+
+							}
+
+						} else {
+
+							var buffers = [];
+
+							for ( var i = 0; i < mipmaps.length; ++ i ) {
+
+								buffers.push( mipmaps[ i ].data.buffer );
+
+							}
 
 						}
 
-						self.postMessage( { type: 'transcode', id: message.id, width, height, hasAlpha, mipmaps, format }, buffers );
+						self.postMessage( { type: 'transcode', id: message.id, width, height, hasAlpha, mipmaps, format, isTextureArray }, buffers );
 
 					} catch ( error ) {
 
@@ -557,6 +579,7 @@ BasisTextureLoader.BasisWorker = function () {
 		var basisFormat = basisFile.isUASTC() ? BasisFormat.UASTC_4x4 : BasisFormat.ETC1S;
 		var width = basisFile.getImageWidth( 0, 0 );
 		var height = basisFile.getImageHeight( 0, 0 );
+		var images = basisFile.getNumImages();
 		var levels = basisFile.getNumLevels( 0 );
 		var hasAlpha = basisFile.getHasAlpha();
 
@@ -569,7 +592,7 @@ BasisTextureLoader.BasisWorker = function () {
 
 		var { transcoderFormat, engineFormat } = getTranscoderFormat( basisFormat, width, height, hasAlpha );
 
-		if ( ! width || ! height || ! levels ) {
+		if ( ! width || ! height || ! images || ! levels ) {
 
 			cleanup();
 			throw new Error( 'THREE.BasisTextureLoader:	Invalid texture' );
@@ -583,37 +606,46 @@ BasisTextureLoader.BasisWorker = function () {
 
 		}
 
-		var mipmaps = [];
+		var imageMips = [];
 
-		for ( var mip = 0; mip < levels; mip ++ ) {
+		for ( var imageIndex = 0; imageIndex < images; imageIndex ++ ) {
 
-			var mipWidth = basisFile.getImageWidth( 0, mip );
-			var mipHeight = basisFile.getImageHeight( 0, mip );
-			var dst = new Uint8Array( basisFile.getImageTranscodedSizeInBytes( 0, mip, transcoderFormat ) );
+			var mipmaps = [];
 
-			var status = basisFile.transcodeImage(
-				dst,
-				0,
-				mip,
-				transcoderFormat,
-				0,
-				hasAlpha
-			);
+			for ( var mip = 0; mip < levels; mip ++ ) {
 
-			if ( ! status ) {
+				var mipWidth = basisFile.getImageWidth( imageIndex, mip );
+				var mipHeight = basisFile.getImageHeight( imageIndex, mip );
+				var dst = new Uint8Array( basisFile.getImageTranscodedSizeInBytes( imageIndex, mip, transcoderFormat ) );
 
-				cleanup();
-				throw new Error( 'THREE.BasisTextureLoader: .transcodeImage failed.' );
+				var status = basisFile.transcodeImage(
+					dst,
+					imageIndex,
+					mip,
+					transcoderFormat,
+					0,
+					hasAlpha
+				);
+
+				if ( ! status ) {
+
+					cleanup();
+					throw new Error( 'THREE.BasisTextureLoader: .transcodeImage failed.' );
+
+				}
+
+				mipmaps.push( { data: dst, width: mipWidth, height: mipHeight } );
 
 			}
 
-			mipmaps.push( { data: dst, width: mipWidth, height: mipHeight } );
+			imageMips[ imageIndex ] = mipmaps;
 
 		}
 
+
 		cleanup();
 
-		return { width, height, hasAlpha, mipmaps, format: engineFormat };
+		return { width, height, hasAlpha, mipmaps: imageMips, format: engineFormat, isTextureArray: images > 1 };
 
 	}
 
