@@ -676,6 +676,7 @@ function WebGLTextures( _gl, extensions, state, properties, capabilities, utils,
 				}
 
 				// textureProperties.__maxMipLevel = mipmaps.length - 1;
+				texture.mipmaps = null;
 
 			} else {
 
